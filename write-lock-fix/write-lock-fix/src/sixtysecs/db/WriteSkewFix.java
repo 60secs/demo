@@ -21,8 +21,7 @@ public class WriteSkewFix {
 	DbConnectionFactory dbConnectionFactory;
 
 	public WriteSkewFix(String connectionString) throws SQLException {
-		this.dbConnectionFactory = new DbConnectionFactory(connectionString,
-				autoCommit);
+		this.dbConnectionFactory = new DbConnectionFactory(connectionString);
 	}
 
 	/**
@@ -124,10 +123,10 @@ public class WriteSkewFix {
 			String cmd = builder.toString();
 			ResultSet rs = null;
 			try {
-				rs = DbConnectionFactory.executeQuery(con, cmd);
+				rs = Db.executeQuery(con, cmd);
 			} finally {
 				if (rs != null) {
-					DbConnectionFactory.closeResultSetAndStatement(rs);
+					Db.closeResultSetAndStatement(rs);
 				}
 			}
 
@@ -173,8 +172,7 @@ public class WriteSkewFix {
 			builder.append(" as LOCK_AVAILABLE ");
 			String cmd = builder.toString();
 			logger.debug("appLockSubscriber: " + cmd);
-			ResultSet rs = DbConnectionFactory.executeQuery(outerConnection,
-					cmd);
+			ResultSet rs = Db.executeQuery(outerConnection, cmd);
 			rs.next();
 			boolean isLockAvailalbe = rs.getBoolean("LOCK_AVAILABLE");
 			if (!isLockAvailalbe) {
@@ -199,8 +197,7 @@ public class WriteSkewFix {
 			builder.append(" as LOCK_AVAILABLE ");
 			String cmd = builder.toString();
 			logger.debug("appLockSubscriber: " + cmd);
-			ResultSet rs = DbConnectionFactory.executeQuery(outerConnection,
-					cmd);
+			ResultSet rs = Db.executeQuery(outerConnection, cmd);
 			rs.next();
 			boolean isLockAvailalbe = rs.getBoolean("LOCK_AVAILABLE");
 			if (!isLockAvailalbe) {
@@ -233,7 +230,7 @@ public class WriteSkewFix {
 			builder.append(" END ");
 			String cmd = builder.toString();
 			logger.debug("appLockSubscriber2: " + cmd);
-			DbConnectionFactory.execute(outerConnection, cmd);
+			Db.execute(outerConnection, cmd);
 		} catch (SQLException ex) {
 			// TODO: get the message make sure not null
 			if ("SUBSCRIBER_TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
@@ -275,8 +272,7 @@ public class WriteSkewFix {
 			builder.append(" as LOCK_AVAILABLE ");
 			String cmd = builder.toString();
 			logger.debug("appLockSubscriber: " + cmd);
-			ResultSet rs = DbConnectionFactory.executeQuery(innerConnection,
-					cmd);
+			ResultSet rs = Db.executeQuery(innerConnection, cmd);
 			rs.next();
 			boolean isLockAvailalbe = rs.getBoolean("LOCK_AVAILABLE");
 			if (!isLockAvailalbe) {
@@ -310,7 +306,7 @@ public class WriteSkewFix {
 			builder.append(" END ");
 			String cmd = builder.toString();
 			logger.debug("appLockSubscriber2: " + cmd);
-			DbConnectionFactory.execute(innerConnection, cmd);
+			Db.execute(innerConnection, cmd);
 		} catch (SQLException ex) {
 			// TODO: get the message make sure not null
 			if ("SUBSCRIBER_TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
