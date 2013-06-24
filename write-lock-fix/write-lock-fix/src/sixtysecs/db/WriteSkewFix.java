@@ -70,7 +70,7 @@ public class WriteSkewFix {
 		try {
 			outerLockTransaction = dbConnectionFactory
 					.getNewTransactionConnection();
-			requiredDummySelect(outerLockTransaction);
+			primeConnectionForAppLock(outerLockTransaction);
 
 			/*
 			 * Checks to see that both inner and outer lock are available,
@@ -90,7 +90,7 @@ public class WriteSkewFix {
 			innerLockTransaction = dbConnectionFactory
 					.getNewTransactionConnection();
 			/* ObtainWriteSkewFixk in fresh transaction context we will return */
-			requiredDummySelect(innerLockTransaction);
+			primeConnectionForAppLock(innerLockTransaction);
 			getKeyedInnerLock(innerLockTransaction, lockName);
 		} catch (SQLException ex) {
 			if (innerLockTransaction != null) {
@@ -108,13 +108,13 @@ public class WriteSkewFix {
 	}
 
 	/**
-	 * Weird quirk. Getting applock fails if don't do a select against DB
-	 * beforehand. Would prefer this method didnt' need to be called.
+	 * SQL Server does not respect a database connection's app lock unless a
+	 * select is performed against an existing table in the same database first.
 	 * 
 	 * @throws SQLException
 	 * @throws SQLRecoverableException
 	 */
-	private void requiredDummySelect(Connection con) throws SQLException,
+	private void primeConnectionForAppLock(Connection con) throws SQLException,
 			SQLRecoverableException {
 		{ // Ensure subscriber exists
 			StringBuilder builder = new StringBuilder();
@@ -129,7 +129,6 @@ public class WriteSkewFix {
 					Db.closeResultSetAndStatement(rs);
 				}
 			}
-
 		}
 	}
 
