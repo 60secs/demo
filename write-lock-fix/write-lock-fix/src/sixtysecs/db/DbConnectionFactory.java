@@ -28,7 +28,7 @@ public class DbConnectionFactory {
 	 * @throws SQLException
 	 *             if unable to initalize auto-commit singleton connection
 	 */
-	public DbConnectionFactory(String connectionString) throws SQLException {
+	DbConnectionFactory(String connectionString) throws SQLException {
 		this.connectionString = connectionString;
 		this.singletonConnection = getNewConnection(true);
 	}
@@ -37,9 +37,10 @@ public class DbConnectionFactory {
 	 * 
 	 * @return a new transactional connection, which requires a commit or
 	 *         rollback
-	 * @throws SQLException if unable to initialize the connection
+	 * @throws SQLException
+	 *             if unable to initialize the connection
 	 */
-	public Connection getNewTransactionConnection() throws SQLException {
+	Connection getNewTransactionConnection() throws SQLException {
 		return getNewConnection(false);
 	}
 

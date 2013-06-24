@@ -10,17 +10,21 @@ import org.apache.log4j.Logger;
 //TODO: throw if over length allowed:
 //TODO: use smaller suffix to allow greater range (e.g. 250)
 /**
+ * TODO: contract include db options MVCC row isolation and read committed
  * 
  * @author Eric Driggs
  * 
  */
-public class WriteSkewFix {
+
+// TODO: rename
+public class KeyedSerializedConnectionFactory {
 	final static boolean autoCommit = false;
 	final static String existingDbTable = "configuration_table";
 	protected static Logger logger = Logger.getRootLogger();
 	DbConnectionFactory dbConnectionFactory;
 
-	public WriteSkewFix(String connectionString) throws SQLException {
+	public KeyedSerializedConnectionFactory(String connectionString)
+			throws SQLException {
 		this.dbConnectionFactory = new DbConnectionFactory(connectionString);
 	}
 
@@ -52,7 +56,7 @@ public class WriteSkewFix {
 	 *             If there is already a transaction in progress for the key
 	 *             string requested
 	 */
-	public Connection newKeyedLockTransaction(String lockName)
+	public Connection getKeyedSerializedConnection(String lockName)
 			throws SQLException, SQLRecoverableException {
 		Connection outerLockTransaction = null; // TODO: refactor to
 												// outerConnection
@@ -179,7 +183,7 @@ public class WriteSkewFix {
 			}
 
 		} catch (SQLException ex) {
-			if ("SUBSCRIBER_TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
+			if ("TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
 				throwRecoverableException(lockName);
 			} else {
 				throw ex;
@@ -203,7 +207,7 @@ public class WriteSkewFix {
 				throwRecoverableException(outerLockName);
 			}
 		} catch (SQLException ex) {
-			if ("SUBSCRIBER_TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
+			if ("TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
 				throwRecoverableException(outerLockName);
 			} else {
 				throw ex;
@@ -225,14 +229,14 @@ public class WriteSkewFix {
 			// transaction after this returns
 			builder.append(" IF @aplsRes2 NOT IN (0, 1) ");
 			builder.append(" BEGIN ");
-			builder.append("     RAISERROR ( 'SUBSCRIBER_TRANSACTION_IN_PROGRESS', 16, 1 ) ");
+			builder.append("     RAISERROR ( 'TRANSACTION_IN_PROGRESS', 16, 1 ) ");
 			builder.append(" END ");
 			String cmd = builder.toString();
 			logger.debug("appLockSubscriber2: " + cmd);
 			Db.execute(outerConnection, cmd);
 		} catch (SQLException ex) {
 			// TODO: get the message make sure not null
-			if ("SUBSCRIBER_TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
+			if ("TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
 				throwRecoverableException(outerLockName);
 			} else {
 				throw ex;
@@ -279,7 +283,7 @@ public class WriteSkewFix {
 			}
 
 		} catch (SQLException ex) {
-			if ("SUBSCRIBER_TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
+			if ("TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
 				throwRecoverableException(lockName);
 			} else {
 				throw ex;
@@ -301,14 +305,14 @@ public class WriteSkewFix {
 			// transaction after this returns
 			builder.append(" IF @aplsRes2 NOT IN (0, 1) ");
 			builder.append(" BEGIN ");
-			builder.append("     RAISERROR ( 'SUBSCRIBER_TRANSACTION_IN_PROGRESS', 16, 1 ) ");
+			builder.append("     RAISERROR ( 'TRANSACTION_IN_PROGRESS', 16, 1 ) ");
 			builder.append(" END ");
 			String cmd = builder.toString();
 			logger.debug("appLockSubscriber2: " + cmd);
 			Db.execute(innerConnection, cmd);
 		} catch (SQLException ex) {
 			// TODO: get the message make sure not null
-			if ("SUBSCRIBER_TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
+			if ("TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
 				throwRecoverableException(lockName);
 			} else {
 				throw ex;
