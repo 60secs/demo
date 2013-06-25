@@ -4,11 +4,12 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
 
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class WriteSkewFixTest {
-	private final static String connectionString = "jdbc:sqlserver://127.0.0.1;databaseName=POS;user=demo;password=demo;";
-	private final static String existingTableName = "configuration_table";
+	private final static String connectionString = "jdbc:sqlserver://127.0.0.1;databaseName=write_skew;user=demo;password=demo;";
+	private final static String existingTableName = "foo";
 	
 	private final static KeyedSerializedConnectionFactory writeSkewFix;
 
@@ -23,7 +24,6 @@ public class WriteSkewFixTest {
 		writeSkewFix = tmpWriteSkewFix;
 	}
 
-	
 	@Test
 	public void expectOneTransactionHasNoErrors() throws Exception {
 		Connection con = null;
@@ -38,7 +38,7 @@ public class WriteSkewFixTest {
 		}
 	}
 
-	@Test(expected = SQLRecoverableException.class)
+	@Test (expected = SQLRecoverableException.class)
 	public void expectSecondTransactionForLockThrowsSQLRecoverableException()
 			throws Exception {
 		Connection transaction = null;
