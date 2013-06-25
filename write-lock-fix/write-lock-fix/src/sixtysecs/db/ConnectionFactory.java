@@ -13,11 +13,11 @@ import org.apache.log4j.Logger;
  * 
  * @author Eric Driggs
  */
-public class DbConnectionFactory {
+public class ConnectionFactory {
 
 	protected static Logger logger = Logger.getRootLogger();
 
-	private String connectionString;
+	private String connectionString ;
 	Connection singletonConnection;
 
 	/**
@@ -27,8 +27,16 @@ public class DbConnectionFactory {
 	 * @param connectionString
 	 * @throws SQLException
 	 *             if unable to initalize auto-commit singleton connection
+	 * @throws ClassNotFoundException
 	 */
-	DbConnectionFactory(String connectionString) throws SQLException {
+	ConnectionFactory(String connectionString) throws SQLException {
+
+		try {
+			Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
+		} catch (ClassNotFoundException ex) {
+			ex.printStackTrace();
+		}
+
 		this.connectionString = connectionString;
 		this.singletonConnection = getNewConnection(true);
 	}

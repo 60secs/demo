@@ -8,7 +8,9 @@ import org.junit.Test;
 
 public class WriteSkewFixTest {
 
-	private final static String connectionString = ""; // TODO:
+	private final static String connectionString = "jdbc:sqlserver://127.0.0.1;databaseName=write_skew;user=sa;password=abc123;";
+	private final static String existingTableName = "foo";
+	// = ""; // TODO:
 	private final static String lockName = "lock12345";
 	private final static KeyedSerializedConnectionFactory writeSkewFix;
 
@@ -16,7 +18,7 @@ public class WriteSkewFixTest {
 		KeyedSerializedConnectionFactory tmpWriteSkewFix = null;
 		try {
 			tmpWriteSkewFix = new KeyedSerializedConnectionFactory(
-					connectionString);
+					connectionString, existingTableName);
 		} catch (SQLException e) {
 			e.printStackTrace();
 		}
@@ -24,11 +26,10 @@ public class WriteSkewFixTest {
 	}
 
 	@Test
-	public void testNewKeyedLockTransaction() throws Exception {
+	public void expectOneTransactionHasNoErrors() throws Exception {
 		Connection transaction = null;
 
 		try {
-
 			transaction = writeSkewFix.getKeyedSerializedConnection(lockName);
 		} finally {
 			if (transaction != null) {
@@ -38,7 +39,8 @@ public class WriteSkewFixTest {
 	}
 
 	@Test(expected = SQLRecoverableException.class)
-	public void testNewKeyedLockTransactionConcurrency() throws Exception {
+	public void expectSecondTransactionForLockThrowsSQLRecoverableException()
+			throws Exception {
 		Connection transaction = null;
 		Connection transaction2 = null;
 

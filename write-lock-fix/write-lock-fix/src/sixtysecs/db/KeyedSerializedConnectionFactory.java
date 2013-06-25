@@ -19,13 +19,14 @@ import org.apache.log4j.Logger;
 // TODO: rename
 public class KeyedSerializedConnectionFactory {
 	final static boolean autoCommit = false;
-	final static String existingDbTable = "configuration_table";
+	final String existingTableName ;
 	protected static Logger logger = Logger.getRootLogger();
-	DbConnectionFactory dbConnectionFactory;
+	ConnectionFactory dbConnectionFactory;
 
-	public KeyedSerializedConnectionFactory(String connectionString)
+	public KeyedSerializedConnectionFactory(String connectionString, String existingTableName)
 			throws SQLException {
-		this.dbConnectionFactory = new DbConnectionFactory(connectionString);
+		this.dbConnectionFactory = new ConnectionFactory(connectionString);
+		this.existingTableName = existingTableName;
 	}
 
 	/**
@@ -122,7 +123,7 @@ public class KeyedSerializedConnectionFactory {
 			SQLRecoverableException {
 		{ // Ensure subscriber exists
 			StringBuilder builder = new StringBuilder();
-			builder.append(" select top 1 * from " + existingDbTable);
+			builder.append(" select top 1 * from " + existingTableName);
 
 			String cmd = builder.toString();
 			ResultSet rs = null;
