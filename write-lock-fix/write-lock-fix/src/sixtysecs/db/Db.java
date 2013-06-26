@@ -20,6 +20,7 @@ public final class Db {
 	public static ResultSet executeQuery(Connection con, String cmd)
 			throws SQLException {
 
+		System.out.println(cmd);
 		ResultSet rs = null;
 		Statement stmt = null;
 		stmt = con.createStatement();
@@ -37,6 +38,7 @@ public final class Db {
 			throws SQLException {
 		Statement stmt = null;
 
+		System.out.println(cmd);
 		try {
 			stmt = con.createStatement();
 			stmt.setEscapeProcessing(false);
