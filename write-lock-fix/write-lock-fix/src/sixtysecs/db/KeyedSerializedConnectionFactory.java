@@ -7,50 +7,43 @@ import java.sql.SQLRecoverableException;
 
 import org.apache.log4j.Logger;
 
-//TODO: throw if over length allowed:
-//TODO: use smaller suffix to allow greater range (e.g. 250)
 /**
- * TODO: contract include db options MVCC row isolation and read committed
+ * Provides blocking connections which are guaranteed to have a unique
+ * identifier. This overcomes write skew anomaly limitations of Sql Server's
+ * read committed, snapshot isolation.
  * 
  * @author Eric Driggs
  * 
  */
-
-// TODO: rename
 public class KeyedSerializedConnectionFactory {
 	final static boolean autoCommit = false;
-	final String existingTableName ;
+	final String existingTableName;
 	protected static Logger logger = Logger.getRootLogger();
 	ConnectionFactory dbConnectionFactory;
 
-	public KeyedSerializedConnectionFactory(String connectionString, String existingTableName)
-			throws SQLException {
+	public KeyedSerializedConnectionFactory(String connectionString,
+			String existingTableName) throws SQLException {
 		this.dbConnectionFactory = new ConnectionFactory(connectionString);
 		this.existingTableName = existingTableName;
 	}
 
 	/**
-	 * Returns a new transaction which requires a commit to save changes.
-	 * <p>
-	 * Only one keyedLockTransaction per key string can be run at a time for a
-	 * given key string. Additional attempts while the first transaction for a
-	 * key string are running will either throw or block.
+	 * Only one transactional connection per key can be run at a time.
+	 * Additional attempts to create a connection with the same key at the same
+	 * time will either throw or block.
 	 * <p>
 	 * Should only and always be called if all of the following conditions are
 	 * true:
 	 * <ul>
-	 * <li>It is normal for the operation about to be performed to be retried on
-	 * failure.</li>
+	 * <li>It is allowed for the operation about to be performed to be retried
+	 * on failure.</li>
+	 * <li>A unique identifier is known for the data being modified</li>
 	 * </ul>
 	 * <p>
-	 * Do not call for subscriber operations. Use
-	 * {@link Connection#newSubscriberLockTransactWriteSkewFix)} instead for
-	 * subscriber operations.
 	 * 
 	 * @param key
 	 *            the string key to lock on.
-	 * @return a transaction which has an application lock with resource name
-	 *         set to the key string
+	 * @return a keyed transactional connection
 	 * @throws SQLException
 	 *             if there is a database error.
 	 * @throws SQLRecoverableException
@@ -62,20 +55,25 @@ public class KeyedSerializedConnectionFactory {
 		Connection outerLockTransaction = null; // TODO: refactor to
 												// outerConnection
 
-		// FIXME: change subscriber comment
+		if (lockName == null || lockName.length() == 0
+				|| lockName.length() > 250) {
+			throw new IllegalArgumentException(
+					"lockName length must be between 1 and 250 characters");
+		}
+
 		/*
 		 * The outer lock can only be taken if both the inner and outer lock are
-		 * available. If a subscriber transaction is in progress, an attempt to
-		 * get a duplicate subscriber transaction may either fail or block. <p>
-		 * By using a separate transaction for the outer lock, we ensure that if
-		 * blocking does occur on the outer lock, the transaction returned will
-		 * reflect the state of the database after the outer lock was obtained
-		 * instead of the state when the lock was requested.
+		 * available. If a transaction is in progress, an attempt to get a
+		 * subscriber transaction may either fail or block. <p> By using a
+		 * separate transaction for the outer lock, we ensure that if blocking
+		 * does occur on the outer lock, the transaction returned will reflect
+		 * the state of the database after the outer lock was obtained instead
+		 * of the state when the lock was requested.
 		 */
 		try {
 			outerLockTransaction = dbConnectionFactory
 					.getNewTransactionConnection();
-			primeConnectionForAppLock(outerLockTransaction);
+			performDmlToBeginTransactionContext(outerLockTransaction);
 
 			/*
 			 * Checks to see that both inner and outer lock are available,
@@ -89,17 +87,16 @@ public class KeyedSerializedConnectionFactory {
 			throw ex;
 		}
 
-		Connection innerLockTransaction = null; // TODO: refactor to inner
-												// connection
+		Connection innerConnection = null; // TODO: refactor to inner
+											// connection
 		try {
-			innerLockTransaction = dbConnectionFactory
-					.getNewTransactionConnection();
+			innerConnection = dbConnectionFactory.getNewTransactionConnection();
 			/* ObtainWriteSkewFixk in fresh transaction context we will return */
-			primeConnectionForAppLock(innerLockTransaction);
-			getKeyedInnerLock(innerLockTransaction, lockName);
+			performDmlToBeginTransactionContext(innerConnection);
+			getKeyedInnerLock(innerConnection, lockName);
 		} catch (SQLException ex) {
-			if (innerLockTransaction != null) {
-				innerLockTransaction.rollback();
+			if (innerConnection != null) {
+				innerConnection.rollback();
 			}
 			throw ex;
 		} finally {
@@ -109,19 +106,21 @@ public class KeyedSerializedConnectionFactory {
 			 */
 			outerLockTransaction.rollback();
 		}
-		return outerLockTransaction;
+		return innerConnection;
 	}
 
 	/**
-	 * SQL Server does not respect a database connection's app lock unless a
-	 * select is performed against an existing table in the same database first.
+	 * Need to read from current database before MSSQL will allow sp_getapplock.
+	 * If this is not performed, an error will be thrown stating that the
+	 * statement must be executed in the context of a transaction.
 	 * 
 	 * @throws SQLException
 	 * @throws SQLRecoverableException
 	 */
-	private void primeConnectionForAppLock(Connection con) throws SQLException,
-			SQLRecoverableException {
+	private void performDmlToBeginTransactionContext(Connection con)
+			throws SQLException, SQLRecoverableException {
 		{ // Ensure subscriber exists
+
 			StringBuilder builder = new StringBuilder();
 			builder.append(" select top 1 * from " + existingTableName);
 
@@ -147,12 +146,9 @@ public class KeyedSerializedConnectionFactory {
 	 * Accomplishes one of the following
 	 * <ul>
 	 * <li>Blocks on waiting for the outer lock.
-	 * <li>takes an application lock for the subscriber using the subscriber's
-	 * id + "_OUTER" as its resource name.</li>
+	 * <li>takes the outer application lock</li>
 	 * <li>throws a {@link SQLRecoverableException} with a message that a
 	 * transaction is already in progress</li>
-	 * <li>throws a {@link SQLException} because the subscriber requested does
-	 * not exist or cannot be accessed</li>
 	 * </ul>
 	 */
 	private void getKeyedOuterLock(Connection outerConnection, String lockName)
@@ -163,86 +159,15 @@ public class KeyedSerializedConnectionFactory {
 		}
 
 		String innerLockName = lockName;
-		String outerLockName = lockName + "_OUTER";
+		String outerLockName = lockName + "_OUT";
 
-		// See if the inner lock is available but do not try to take it
-		// yet
-		// TOMAYBE: is this a necessary check?
-		try {
-			StringBuilder builder = new StringBuilder();
-			builder.append(" SELECT APPLOCK_TEST ( 'public', ");
-			builder.append(str(innerLockName));
-			builder.append(" , 'Exclusive' , 'Transaction' ) ");
-			builder.append(" as LOCK_AVAILABLE ");
-			String cmd = builder.toString();
-			logger.debug("appLockSubscriber: " + cmd);
-			ResultSet rs = Db.executeQuery(outerConnection, cmd);
-			rs.next();
-			boolean isLockAvailalbe = rs.getBoolean("LOCK_AVAILABLE");
-			if (!isLockAvailalbe) {
-				throwRecoverableException(lockName);
-			}
+		/*
+		 * double checked locking optimization on both locks
+		 */
+		validateLockAvailable(outerConnection, innerLockName);
+		validateLockAvailable(outerConnection, outerLockName);
 
-		} catch (SQLException ex) {
-			if ("TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
-				throwRecoverableException(lockName);
-			} else {
-				throw ex;
-			}
-		}
-
-		// See if the outer lock is available but do not try to take it
-		// yet
-		try {
-			StringBuilder builder = new StringBuilder();
-			builder.append(" SELECT APPLOCK_TEST ( 'public', ");
-			builder.append(str(outerLockName));
-			builder.append(" , 'Exclusive' , 'Transaction' ) ");
-			builder.append(" as LOCK_AVAILABLE ");
-			String cmd = builder.toString();
-			logger.debug("appLockSubscriber: " + cmd);
-			ResultSet rs = Db.executeQuery(outerConnection, cmd);
-			rs.next();
-			boolean isLockAvailalbe = rs.getBoolean("LOCK_AVAILABLE");
-			if (!isLockAvailalbe) {
-				throwRecoverableException(outerLockName);
-			}
-		} catch (SQLException ex) {
-			if ("TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
-				throwRecoverableException(outerLockName);
-			} else {
-				throw ex;
-			}
-		}
-
-		// try to take the application lock
-		try {
-			StringBuilder builder = new StringBuilder();
-			builder.append(" DECLARE @aplsRes2 INT ");
-			builder.append(" EXEC @aplsRes2 = sp_getapplock ");
-			builder.append(" @Resource =  ");
-			builder.append(str(outerLockName));
-			builder.append(" ,@LockMode = 'Exclusive' ");
-			builder.append(" ,@LockOwner = 'Transaction' ");
-			// 1 minute timeout
-			builder.append(" ,@LockTimeout = '60000' ");
-			// FIXME: if the result is 1, we should recreate the
-			// transaction after this returns
-			builder.append(" IF @aplsRes2 NOT IN (0, 1) ");
-			builder.append(" BEGIN ");
-			builder.append("     RAISERROR ( 'TRANSACTION_IN_PROGRESS', 16, 1 ) ");
-			builder.append(" END ");
-			String cmd = builder.toString();
-			logger.debug("appLockSubscriber2: " + cmd);
-			Db.execute(outerConnection, cmd);
-		} catch (SQLException ex) {
-			// TODO: get the message make sure not null
-			if ("TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
-				throwRecoverableException(outerLockName);
-			} else {
-				throw ex;
-			}
-		}
+		getAppLock(outerConnection, outerLockName);
 
 	}
 
@@ -259,66 +184,18 @@ public class KeyedSerializedConnectionFactory {
 	 * not exist or cannot be accessed</li>
 	 * </ul>
 	 */
-	private void getKeyedInnerLock(Connection innerConnection, String lockName)
-			throws SQLException, SQLRecoverableException {
+	private void getKeyedInnerLock(Connection innerConnection,
+			String innerLockName) throws SQLException, SQLRecoverableException {
 
-		if (lockName == null) {
+		if (innerLockName == null) {
 			throw new SQLException("Null lockName for inner lock.");
 		}
 
-		// See if the lock is available but do not try to take it yet
-
-		try {
-			StringBuilder builder = new StringBuilder();
-			builder.append(" SELECT APPLOCK_TEST ( 'public', ");
-			builder.append(str(lockName));
-			builder.append(" , 'Exclusive' , 'Transaction' ) ");
-			builder.append(" as LOCK_AVAILABLE ");
-			String cmd = builder.toString();
-			logger.debug("appLockSubscriber: " + cmd);
-			ResultSet rs = Db.executeQuery(innerConnection, cmd);
-			rs.next();
-			boolean isLockAvailalbe = rs.getBoolean("LOCK_AVAILABLE");
-			if (!isLockAvailalbe) {
-				throwRecoverableException(lockName);
-			}
-
-		} catch (SQLException ex) {
-			if ("TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
-				throwRecoverableException(lockName);
-			} else {
-				throw ex;
-			}
-		}
-
-		// try to take the application lock
-		try {
-			StringBuilder builder = new StringBuilder();
-			builder.append(" DECLARE @aplsRes2 INT ");
-			builder.append(" EXEC @aplsRes2 = sp_getapplock ");
-			builder.append(" @Resource =  ");
-			builder.append(str(lockName));
-			builder.append(" ,@LockMode = 'Exclusive' ");
-			builder.append(" ,@LockOwner = 'Transaction' ");
-			// 1 minute timeout
-			builder.append(" ,@LockTimeout = '60000' ");
-			// FIXME: if the result is 1, we should recreate the
-			// transaction after this returns
-			builder.append(" IF @aplsRes2 NOT IN (0, 1) ");
-			builder.append(" BEGIN ");
-			builder.append("     RAISERROR ( 'TRANSACTION_IN_PROGRESS', 16, 1 ) ");
-			builder.append(" END ");
-			String cmd = builder.toString();
-			logger.debug("appLockSubscriber2: " + cmd);
-			Db.execute(innerConnection, cmd);
-		} catch (SQLException ex) {
-			// TODO: get the message make sure not null
-			if ("TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
-				throwRecoverableException(lockName);
-			} else {
-				throw ex;
-			}
-		}
+		/*
+		 * double check locking optimization on inner lock
+		 */
+		validateLockAvailable(innerConnection, innerLockName);
+		getAppLock(innerConnection, innerLockName);
 
 	}
 
@@ -342,6 +219,62 @@ public class KeyedSerializedConnectionFactory {
 			throws SQLRecoverableException {
 		throw new SQLRecoverableException(
 				"A transaction is already in progress for lock: " + lockName);
+	}
+
+	private void validateLockAvailable(Connection con, String lockName)
+			throws SQLRecoverableException, SQLException {
+
+		StringBuilder builder = new StringBuilder();
+		builder.append(" SELECT APPLOCK_TEST ( 'public', ");
+		builder.append(str(lockName));
+		builder.append(" , 'Exclusive' , 'Transaction' ) ");
+		builder.append(" as LOCK_AVAILABLE ");
+		String cmd = builder.toString();
+		ResultSet rs = Db.executeQuery(con, cmd);
+		rs.next();
+		boolean isLockAvailalbe = rs.getBoolean("LOCK_AVAILABLE");
+		if (!isLockAvailalbe) {
+			throwRecoverableException(lockName);
+		}
+
+	}
+
+	/**
+	 * 
+	 * @param con
+	 * @param lockName
+	 * @throws SQLException
+	 */
+	private void getAppLock(Connection con, String lockName)
+			throws SQLException, SQLRecoverableException {
+
+		try {
+			StringBuilder builder = new StringBuilder();
+			builder.append(" DECLARE @aplsRes INT ");
+			builder.append(" EXEC @aplsRes = sp_getapplock ");
+			builder.append(" @Resource =  ");
+			builder.append(str(lockName));
+			builder.append(" ,@LockMode = 'Exclusive' ");
+			builder.append(" ,@LockOwner = 'Transaction' ");
+			builder.append(" ,@LockTimeout = '60000' "); // 1 minute timeout
+
+			// 0 means success, 1 means success after wait
+			builder.append(" IF @aplsRes NOT IN (0, 1) ");
+			builder.append(" BEGIN ");
+			builder.append("     RAISERROR ( 'TRANSACTION_IN_PROGRESS', 16, 1 ) ");
+			builder.append(" END ");
+			String cmd = builder.toString();
+
+			Db.execute(con, cmd);
+		} catch (SQLException ex) {
+
+			if ("TRANSACTION_IN_PROGRESS".equals(ex.getMessage())) {
+				throwRecoverableException(lockName);
+			} else {
+				throw ex;
+			}
+		}
+
 	}
 
 }
