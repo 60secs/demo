@@ -4,10 +4,9 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
 
-import org.junit.Ignore;
 import org.junit.Test;
 
-public class WriteSkewFixTest {
+public class KeyedSerializedConnectionFactoryTest {
 	private final static String connectionString = "jdbc:sqlserver://127.0.0.1;databaseName=write_skew;user=demo;password=demo;";
 	private final static String existingTableName = "foo";
 
@@ -24,10 +23,8 @@ public class WriteSkewFixTest {
 		writeSkewFix = tmpWriteSkewFix;
 	}
 
-	@Ignore
 	@Test
-	public void expectCommitDoesNotThrowsSqlExceptionIfConnectionNotDropped()
-			throws Exception {
+	public void expectCommitDoesNotThrow() throws Exception {
 		String lockName = "lock1234";
 
 		Connection transaction = null;
@@ -39,20 +36,6 @@ public class WriteSkewFixTest {
 				transaction.rollback();
 			}
 			throw e;
-		}
-	}
-
-	@Test
-	public void expectOneTransactionHasNoErrors() throws Exception {
-		Connection con = null;
-		String lockName = "lock12345";
-
-		try {
-			con = writeSkewFix.getKeyedSerializedConnection(lockName);
-		} finally {
-			if (con != null) {
-				con.rollback();
-			}
 		}
 	}
 

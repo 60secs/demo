@@ -79,4 +79,18 @@ public final class Db {
 		return true;
 	}
 
+	public static String str(String val) throws SQLException {
+		if (val == null || val.equals("")) {
+			throw new SQLException("this value " + val + " cannot be empty");
+		}
+
+		return "'" + apostrophe(val) + "'";
+	}
+
+	private static String apostrophe(String val) {
+		if (val != null) {
+			val = val.replaceAll("'", "''");
+		}
+		return val;
+	}
 }
